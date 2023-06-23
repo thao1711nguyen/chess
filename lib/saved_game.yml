@@ -1,0 +1,272 @@
+---
+:@white: |
+  ---
+  :@pieces:
+  - |
+    ---
+    :@position:
+    - 1
+    - 1
+    :@color: w
+    :@name: R
+    :@castle: true
+    :@symbol: "♖"
+  - |
+    ---
+    :@position:
+    - 8
+    - 1
+    :@color: w
+    :@name: R
+    :@castle: true
+    :@symbol: "♖"
+  - |
+    ---
+    :@position:
+    - 2
+    - 1
+    :@color: w
+    :@name: N
+    :@symbol: "♘"
+  - |
+    ---
+    :@position:
+    - 7
+    - 1
+    :@color: w
+    :@name: N
+    :@symbol: "♘"
+  - |
+    ---
+    :@position:
+    - 3
+    - 1
+    :@color: w
+    :@name: B
+    :@symbol: "♗"
+  - |
+    ---
+    :@position:
+    - 6
+    - 1
+    :@color: w
+    :@name: B
+    :@symbol: "♗"
+  - |
+    ---
+    :@position:
+    - 4
+    - 1
+    :@color: w
+    :@name: Q
+    :@symbol: "♕"
+  - |
+    ---
+    :@position:
+    - 5
+    - 1
+    :@color: w
+    :@name: K
+    :@castle: true
+    :@symbol: "♔"
+  - |
+    ---
+    :@position:
+    - 1
+    - 2
+    :@color: w
+    :@name: p
+    :@symbol: "♙"
+  - |
+    ---
+    :@position:
+    - 2
+    - 2
+    :@color: w
+    :@name: p
+    :@symbol: "♙"
+  - |
+    ---
+    :@position:
+    - 3
+    - 2
+    :@color: w
+    :@name: p
+    :@symbol: "♙"
+  - |
+    ---
+    :@position:
+    - 4
+    - 2
+    :@color: w
+    :@name: p
+    :@symbol: "♙"
+  - |
+    ---
+    :@position:
+    - 5
+    - 2
+    :@color: w
+    :@name: p
+    :@symbol: "♙"
+  - |
+    ---
+    :@position:
+    - 6
+    - 2
+    :@color: w
+    :@name: p
+    :@symbol: "♙"
+  - |
+    ---
+    :@position:
+    - 7
+    - 2
+    :@color: w
+    :@name: p
+    :@symbol: "♙"
+  - |
+    ---
+    :@position:
+    - 8
+    - 2
+    :@color: w
+    :@name: p
+    :@symbol: "♙"
+:@black: |
+  ---
+  :@pieces:
+  - |
+    ---
+    :@position:
+    - 1
+    - 8
+    :@color: b
+    :@name: R
+    :@castle: true
+    :@symbol: "♜"
+  - |
+    ---
+    :@position:
+    - 8
+    - 8
+    :@color: b
+    :@name: R
+    :@castle: true
+    :@symbol: "♜"
+  - |
+    ---
+    :@position:
+    - 2
+    - 8
+    :@color: b
+    :@name: N
+    :@symbol: "♞"
+  - |
+    ---
+    :@position:
+    - 7
+    - 8
+    :@color: b
+    :@name: N
+    :@symbol: "♞"
+  - |
+    ---
+    :@position:
+    - 3
+    - 8
+    :@color: b
+    :@name: B
+    :@symbol: "♝"
+  - |
+    ---
+    :@position:
+    - 6
+    - 8
+    :@color: b
+    :@name: B
+    :@symbol: "♝"
+  - |
+    ---
+    :@position:
+    - 4
+    - 8
+    :@color: b
+    :@name: Q
+    :@symbol: "♛"
+  - |
+    ---
+    :@position:
+    - 5
+    - 8
+    :@color: b
+    :@name: K
+    :@castle: true
+    :@symbol: "♚"
+  - |
+    ---
+    :@position:
+    - 1
+    - 7
+    :@color: b
+    :@name: p
+    :@symbol: "♟"
+  - |
+    ---
+    :@position:
+    - 2
+    - 7
+    :@color: b
+    :@name: p
+    :@symbol: "♟"
+  - |
+    ---
+    :@position:
+    - 3
+    - 7
+    :@color: b
+    :@name: p
+    :@symbol: "♟"
+  - |
+    ---
+    :@position:
+    - 4
+    - 7
+    :@color: b
+    :@name: p
+    :@symbol: "♟"
+  - |
+    ---
+    :@position:
+    - 5
+    - 7
+    :@color: b
+    :@name: p
+    :@symbol: "♟"
+  - |
+    ---
+    :@position:
+    - 6
+    - 7
+    :@color: b
+    :@name: p
+    :@symbol: "♟"
+  - |
+    ---
+    :@position:
+    - 7
+    - 7
+    :@color: b
+    :@name: p
+    :@symbol: "♟"
+  - |
+    ---
+    :@position:
+    - 8
+    - 7
+    :@color: b
+    :@name: p
+    :@symbol: "♟"
+:@count: 0
+:@in_passing:
+:@removed_piece:
