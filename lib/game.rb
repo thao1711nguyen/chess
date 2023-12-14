@@ -1,78 +1,370 @@
-require "require_all"
-require_all './lib/pieces'
-require_all "./lib/*.rb"
-
+require_relative './board.rb'
 class Game 
-    include BasicSerialize
-    attr_accessor :white, :black, :board, :count, :in_passing, :removed_piece
+    attr_accessor :board
     def initialize
-        @white = Player.new('w')
-        @black = Player.new('b')
-        @board = Board.new
+        @board = nil
+        @board_serialize = nil
         @count = 0
-        @in_passing = nil
-        @removed_piece = nil
     end
-    def play 
-        if introduce == 'c' 
-            unserialize 
+    def ask(player)
+        puts "Player #{player} please make a valid move"
+        puts "The correct format is: [piece][current location]-[piece][destination] for all the pieces, except for pawn"
+        puts "For example: to move a queen: Qa1-Qa8"
+        puts "In case of a pawn: [current location]-[destination]. For example: b2-b3 "
+        gets.chomp.strip.split('')
+    end
+    def get_move(player)
+        move_raw = ask(player)
+        condition1 = -> (char) { char.between?('a', 'h') }
+        condition2 = -> (char) { char.between?('1', '8') }
+        condition3 = -> (char) { ['K','Q','R','B','N'].include?(char) }
+        if move_raw.length == 5
+            if move_raw[move_raw.length/2] == "-" &&  
+                condition1.call(move_raw[0]) && condition2.call(move_raw[1]) &&
+                condition1.call(move_raw[3]) && condition2.call(move_raw[4])
+                move_raw
+            end
+        elsif move_raw.length == 7 
+            if move_raw[move_raw.length/2] == "-" && 
+                condition3.call(move_raw[0]) && condition3.call(move_raw[4]) &&
+                move_raw[0] == move_raw[4] &&
+                condition1.call(move_raw[1]) && condition2.call(move_raw[2]) &&
+                condition1.call(move_raw[5]) && condition2.call(move_raw[6])
+                move_raw
+            end
+        end  
+    end
+    def transform(raw_move)
+        convert = -> (char) { char.ord - 96 }
+        if raw_move.length == 5
+            x1 = convert.call(raw_move[0])
+            y1 = raw_move[1].to_i
+            x2 = convert.call(raw_move[3])
+            y2 = raw_move[4].to_i
+            { piece: 'p', current: [x1, y1], destination: [x2, y2]}
         else 
-            @white.pieces = @white.create_new_pieces
-            @black.pieces = @black.create_new_pieces
+            x1 = convert.call(raw_move[1])
+            y1 = raw_move[2].to_i
+            x2 = convert.call(raw_move[5])
+            y2 = raw_move[6].to_i
+            { piece: raw_move[0], current: [x1, y1], destination: [x2, y2]}
         end
-        set_up 
+    end
+    def convert_pattern(move)
+        x = move[:destination].coordinator[0] - move[:current].coordinator[0]
+        y = move[:destination].coordinator[1] - move[:current].coordinator[1]
+        pattern = [x,y]
+        if ["p", "K", "N"].include?(move[:current].status.name)
+            return pattern
+        end
+        not_zero = pattern.detect {|n| n!= 0}.abs.to_f
+        pattern.map {|n| n/not_zero }
+    end
+    def get_path(player, opponent, piece, move) 
+        pattern = convert_pattern(move)
+        
+        result = special_pattern(player, opponent, move, piece, pattern) 
+        return result unless result.nil?
+        if piece.name == 'p'
+            if piece.normal_pattern.include?(pattern) && move[:destination].status.nil?
+                return 'normal'
+            end 
+            if piece.eat_pattern.include?(pattern)
+                return 'normal' if !move[:destination].status.nil? && move[:destination].status.color == opponent
+            end
+        else 
+            'normal' if piece.normal_pattern.include?(pattern) && !@board.obstacle?(move[:current].coordinator, move[:destination].coordinator, pattern)
+        end
+    end
+    def in_passing?(pattern, piece, move)
+        destination = move[:destination].coordinator
+        eat_coor = case piece.color 
+        when 'w'
+            [destination[0], destination[1]-1]
+        when 'b'
+            [destination[0], destination[1]+1]
+        end
+        eat_square = @board.square(eat_coor)
+        piece.eat_pattern.include?(pattern) && !eat_square.status.nil? && 
+            eat_square.status.name == 'p' &&
+            eat_square.status.in_passing
+    end
+    def castle?(player, opponent, move, king)
+        king_square = move[:current]
+        pattern = convert_pattern(move)
+        return unless king.special_pattern.include?(pattern)
+        rook_coor = case move[:destination].coordinator
+        when [7,1]
+            [8,1]
+        when [3,1]
+            [1,1]
+        when [7,8]
+            [8,8]
+        when [3,8]
+            [1,8]
+        end
+        rook = @board.get_piece('R', rook_coor, player)
+        return if !king.castle || rook.nil? || !rook.castle
+
+        return if @board.pieces(opponent).any? { |square| can_eat?(square, king_square) }
+
+        rook_square = @board.square(rook_coor)
+        unless @board.obstacle?(rook_coor, move[:current].coordinator, convert_pattern({current: rook_square, destination: king_square}))
+            rook 
+        end
+    end
+    
+    def can_eat?(attack, defense)
+        pattern = convert_pattern({current: attack, destination: defense})
+        return false unless attack.status.eat_pattern.include?(pattern)
+        !@board.obstacle?(attack.coordinator, defense.coordinator, pattern)
+         
+    end
+    #not tested yet
+    def initial_pattern(piece, move, pattern)
+        obstacle_pattern = piece.color == 'w' ? [0,1] : [0,-1]
+        piece.initial_position?(move[:current].coordinator) &&
+            piece.special_pattern.include?(pattern) &&
+            !@board.obstacle?(move[:current].coordinator, move[:destination].coordinator, obstacle_pattern)
+    end
+    def last_pattern(piece, move, pattern)
+        return unless piece.final_position?(move[:destination].coordinator)
+        if piece.normal_pattern.include?(pattern)
+            if @board.square(move[:destination].coordinator).status.nil?
+                return true
+            end
+        end
+        if piece.eat_pattern.include?(pattern)
+            if (!@board.square(move[:destination].coordinator).status.nil? && @board.square(move[:destination].coordinator).status.color != piece.color)
+                
+                true  
+            end
+        
+        end
+    end
+    def special_pattern(player, opponent, move, piece, pattern) 
+        if piece.name == "K"
+            castle?(player, opponent, move, piece)
+        elsif piece.name == 'p'
+            return 'pawn first' if initial_pattern(piece, move, pattern)
+            return 'pawn last' if last_pattern(piece, move, pattern)
+            'in-passing' if in_passing?(pattern, piece, move)
+        end
+    end
+    def save_state
+        @board_serialize = Marshal.dump(@board)
+    end
+    def undo 
+        @board = Marshal.load(@board_serialize)
+    end
+    def normal_moving(piece, move)
+        move[:current].status = nil 
+        move[:destination].status = piece
+        case piece.name 
+        when 'K'
+            piece.castle = false
+        when 'R'
+            piece.castle = false 
+        end
+    end
+    def castle_moving(king, rook, move)
+        king.castle = false 
+        rook.castle = false
+        normal_moving(king, move)
+        rook_coor = nil 
+        old_rook = nil
+        case move[:destination].coordinator 
+        when [7,1]
+            rook_coor = [6,1]
+            old_rook = [8,1]
+        when [3,1] 
+            rook_coor = [4,1]
+            old_rook = [1,1]
+        when [7,8] 
+            rook_coor = [6,8]
+            old_rook = [8,8]
+        when [3,8]
+            rook_coor = [4,8]
+            old_rook = [1,8]
+        end
+        @board.square(rook_coor).status = rook
+        @board.square(old_rook).status = nil
+    end
+    def promote(move, piece)
+        move[:current].status = nil
+        new_piece = get_new_piece(move[:destination].coordinator, piece.color)
+        move[:destination].status = new_piece
+    end
+    def get_new_piece(coordinator, color)
+        pieces_names = ['Q', 'R', 'B', 'N']
+        piece_name = nil 
         loop do 
-            board.display 
-            player = count.even? ? @white : @black
-            opponent = count.even? ? @black : @white
-            return if count % 3 == 0 && serialize?
-            
-            loop do 
-                move = get_move(player) #[piece, postion, destination]
-                next if move.nil?
-                piece = move[0]
-                position = move[1]
-                destination = move[2]
-                if piece.name == 'K'
-                    next if is_eaten_by(opponent.pieces, destination).length > 0
-                    if piece.path_valid?(board, destination)
-                        change(piece, position, destination, opponent)
-                        piece.castle = false
-                    else 
-                        next unless player.check_castle? && castle_succeed?(player, piece, destination, opponent)
-                    end
-                else  
-                    player_king_coor = player.get_piece('K')[0].position
-                    if piece.name == 'p'
-                        pawn_move = pawn_valid_move(piece, position, destination, opponent)
-                        next unless pawn_move
-                        change(piece, position, destination, opponent, pawn_move)
-                        if is_eaten_by(opponent.pieces, player_king_coor).length > 0    
-                            undo(piece, position, destination, opponent)
-                            next
-                        end
-                        pawn_promote(player, piece)
-                    else 
-                        next unless piece.path_valid?(board, destination)
-                        piece.castle = false if piece.name == 'R'
-                        change(piece, position, destination, opponent)      
-                        if is_eaten_by(opponent.pieces, player_king_coor).length > 0
-                            undo(piece, position, destination, opponent)
-                            next
-                        end
-                    end                            
+            puts "Which piece would you like your pawn to become? "
+            puts "Queen(Q), Rook(R), Bishop(B) or Knight(N)"
+            piece_name = gets.chomp.strip
+            break if pieces_names.any?(piece_name)
+            puts "Please enter a valid piece!"
+        end
+        case piece_name 
+        when 'Q'
+            Queen.new(color)
+        when 'R'
+            Rook.new(color)
+        when 'B'
+            Bishop.new(color)
+        when 'N'
+            Knight.new(color)
+        end
+        
+    end
+    def in_passing_moving(move, piece)
+        destination = move[:destination].coordinator
+        eat_coor = case piece.color 
+        when 'w'
+            [destination[0], destination[1]-1]
+        when 'b'
+            [destination[0], destination[1]+1]
+        end
+        normal_moving(piece, move)
+        @board.square(eat_coor).status = nil
+    end
+    def moving(path, piece, move)
+        @board.remove_in_passing
+        if path == 'normal'
+            normal_moving(piece, move)
+        elsif path.instance_of? Rook
+            castle_moving(piece, path, move)
+        elsif path == 'pawn first'
+            normal_moving(piece, move)
+            piece.in_passing = true
+        elsif path == 'pawn last'
+            promote(move, piece)
+        elsif path == 'in-passing'
+            in_passing_moving(move, piece)
+        end
+    end
+    def tie?(attack, defense)
+        # defense: king & attack: king + knight || bishop 
+        attack_pieces = @board.pieces(attack).map {|square| square.status.name }
+        player_pieces = @board.pieces(defense).map {|square| square.status.name }
+        condition1 = player_pieces.length == 1 &&
+                        attack_pieces.length == 2 && 
+                        (attack_pieces.include?('N') || attack_pieces.include?('B')) 
+        return true if condition1
+        #king is not checked 
+        king_square = @board.get_king(defense)
+        king_checked = @board.pieces(attack).any? do |att|
+            can_eat?(att, king_square) 
+        end
+        return false if king_checked
+        #king & other pieces have no way to go
+        !@board.pieces(defense).any? do |square|
+            piece = square.status
+
+            all_patterns = (piece.normal_pattern + piece.eat_pattern).uniq
+            if piece.name == 'K' || piece.name == 'p'
+                all_patterns = all_patterns + piece.special_pattern
+            end
+
+            all_patterns.any? do |pat|
+                x = square.coordinator[0] + pat[0]
+                y = square.coordinator[1] + pat[1]
+                ajacent_square = @board.square([x,y])
+
+                condition1 = !ajacent_square.nil? && (ajacent_square.status.nil? || ajacent_square.status.color != 'defense') && 
+                    !@board.obstacle?(square.coordinator, [x,y], pat) &&
+                    get_path(defense, attack, piece, {current: square, destination: ajacent_square})
+                
+                condition2 = true
+                
+                if condition1 && piece.name == 'K'
+                    condition2 = @board.pieces(attack).all? {|att| !can_eat?(att, ajacent_square) } 
                 end
-                break
+                condition1 && condition2
             end
-            modify_in_passing(player)
-            result = is_checkmated?(player, opponent)
-            result = tie?(player, opponent) unless result 
-            if result != false
-                annouce_result(result)
-                board.display
-                break
+        end
+        
+            
+    end
+    def is_checkmated?(attack, defense)
+        king_square = @board.get_king(defense)
+        king = king_square.status
+        #king is checked
+        king_checked = @board.pieces(attack).any? {|att| can_eat?(att, king_square) }
+        return false unless king_checked
+        #the king can't run on its own
+        king_patterns = (king.normal_pattern + king.eat_pattern + king.special_pattern).uniq
+        king_run = king_patterns.any? do |pat| 
+            x = king_square.coordinator[0] + pat[0]
+            y = king_square.coordinator[1] + pat[1]
+            ajacent_square = @board.square([x,y])
+            !ajacent_square.nil? && 
+                (ajacent_square.status.nil? || ajacent_square.status.color != defense) &&
+                !@board.obstacle?(king_square.coordinator, [x,y], pat) &&
+                get_path(defense, attack, king, {current: king_square, destination: ajacent_square}) &&
+                @board.pieces(attack).all? {|att| !can_eat?(att, ajacent_square) }
+        end
+        return false if king_run
+
+        #we can't eat the attack_piece || there are more than 1 piece is checking
+        #we can't shield the king by another piece || there are more than 1 piece is checking
+        checking_squares = @board.pieces(attack).select {|att|  can_eat?(att, king_square) }
+        return true if checking_squares.length > 1
+
+        defense_pieces = @board.pieces(defense).select {|square| square.status.name != 'K'}
+        return false if defense_pieces.any? {|square| can_eat?(square, checking_squares[0]) }
+        
+
+        step = checking_squares[0].coordinator.dup
+        check_patten = convert_pattern({current: checking_squares[0], destination: king_square})
+        loop do 
+            step[0] += check_patten[0]
+            step[1] += check_patten[1]
+            return true if step == king_square.coordinator
+            step_square = @board.square(step)
+            valid_shield = @board.pieces(defense).any? do |square|
+                pattern = convert_pattern({current: square, destination: step_square})
+                get_path(defense, attack, square.status, {current: square, destination: step_square}) &&
+                    !@board.obstacle?(square.coordinator, step, pattern)
             end
-            @count += 1 
+            return false if valid_shield
+        end
+
+    end
+    def ask_for_serialization
+        loop do 
+            puts "Press 'c' if you want to continue the game and 'x' if you want to exit and save it"
+            answer = gets.chomp.strip
+            return answer if answer == 'c' || answer == 'x'
+            puts 'invalid answer! Please enter a proper one'
+        end
+    end
+    # in-progress
+    def serialize?
+        case ask_for_serialization
+        when 'x'
+            object = {board: @board, count: @count}
+            File.open('./lib/saved_game.yml', 'w') {|file| file.puts Marshal.dump object}
+            true 
+        else 
+            false
+        end
+    end
+
+    def unserialize
+        object = Marshal.load(File.read('./lib/saved_game.yml'))
+        @board = object[:board]
+        @count = object[:count]
+    end
+    def introduce
+        puts 'Welcome to the game!'
+        if File.exist?('./lib/saved_game.yml')
+            loop do 
+                puts "Press 'n' if you want to play new game and 'c' if you want to continue previous game"
+                answer = gets.chomp.strip
+                return answer if answer == 'n' || answer == 'c'
+                puts "Please enter a valid answer!"
+            end
         end
     end
     def annouce_result(result)
@@ -83,297 +375,65 @@ class Game
             puts "Congratulation #{result}, you win the game!"
         end
     end
-    def serialize?
-        case ask_for_serialization
-        when 'x'
-            obj = {}
-            obj[:@white] = @white.serialize
-            obj[:@black] = @black.serialize
-            obj[:@count] = @count
-            @in_passing.nil? ? obj[:@in_passing] = nil : obj[:@in_passing] = @in_passing.serialize
-            @removed_piece.nil? ? obj[:@removed_piece] = nil : obj[:@removed_piece] = @removed_piece.serialize
-            File.open('./lib/saved_game.yml', 'w') {|file| file.puts @@serializer.dump obj}
-            true 
-        else 
-            false
+    def delete_file
+        if File.exist?('./lib/saved_game.yml')
+            File.delete('./lib/saved_game.yml')
         end
     end
-
-    def unserialize
-        obj = @@serializer.load(File.read('./lib/saved_game.yml'))
-        @count = obj[:@count]
-        @white.unserialize(obj[:@white])
-        @black.unserialize(obj[:@black])
-        
-        if obj[:@in_passing].nil?
-            @in_passing = nil 
+    def play 
+        if introduce == 'c'
+            unserialize
         else 
-            @in_passing = piece_unserialize(obj[:@in_passing])
+            @board = Board.new
         end
-
-        if obj[:@removed_piece].nil?
-            @removed_piece = nil 
-        else 
-            @removed_piece = piece_unserialize(obj[:@removed_piece])
-        end
-        
-    end
-    def ask_for_serialization
         loop do 
-            puts "Press 'c' if you want to continue the game and 'x' if you want to exit and save it"
-            answer = gets.chomp.strip
-            return answer if answer == 'c' || answer == 'x'
-            puts 'invalid answer! Please enter a proper one'
-        end
-    end
-    def set_up 
-        board.create_board
-        [@white, @black].each do |player|
-            player.pieces.each do |piece|
-                board.change_status(piece.position, piece)
+            @board.display
+            player = @count % 2 == 0 ? 'w' : 'b'
+            opponent = player == 'w' ? 'b' : 'w'
+            if tie?(opponent, player) 
+                annouce_result('tie')
+                delete_file
+                return
             end
-        end
-    end
-    def undo(piece, position, destination, opponent) 
-        piece.position = position
-        board.change_status(position, piece)
-        board.change_status(destination, nil)
-        @in_passing = nil if @in_passing == piece
-        unless @removed_piece.nil?
-            opponent.pieces << @removed_piece
-            board.change_status(@removed_piece.position, @removed_piece)
-            @removed_piece = nil
-        end
-    end
-    def pawn_promote(player, piece)
-        piece_name = piece.promote?
-        unless piece_name.nil?
-            player.pieces.delete(piece) 
-            new_piece = player.promote(piece_name, piece.position) 
-            board.change_status(new_piece.position, new_piece)
-        end
-    end
-    def modify_in_passing(player)
-        @in_passing = nil if in_passing != nil && in_passing.color != player.color
-    end
-
-    def is_eaten_by(attack, defense_coor)
-        result = []
-        attack.each do |piece|
-            
-            if piece.name == 'p' 
-                result << piece if piece.eat?(defense_coor)
+            if is_checkmated?(opponent, player)
+                annouce_result(opponent)
+                delete_file
+                return
             else 
-                result << piece if piece.path_valid?(board, defense_coor)
+                return if serialize?
             end
-        end
-        result
-    end
-    def tie?(attack, defense)
-        #king is not checked 
-        defense_king = defense.get_piece('K')[0]
-        return false if is_eaten_by(attack.pieces, defense_king.position).length > 0
-        #king has no way to go 
-        defense_king.generate_possible_coors.each do |destination|
-            return false if is_eaten_by(attack.pieces, destination).length == 0
-        end
-        #other pieces have no way to go
-        other_pieces = defense.pieces.select {|piece| piece.name != 'K'}
-        other_pieces.each do |piece|
-            adjacent_coors = piece.generate_possible_coors
-            adjacent_coors.each do |destination|
-                if pass_basic_condition(defense, destination)
-                    if piece.name == 'p'
-                        return false if pawn_valid_move(piece, piece.position, destination, attack) 
-                    end
-                    return false
-                end
-            end
-        end
-        'tie'
-    end
-    def is_checkmated?(attack, defense)
-        defense_king = defense.get_piece('K')[0]
-        
-        attack_pieces = is_eaten_by(attack.pieces, defense_king.position)
-        case attack_pieces.length 
-        when 0
-            return false
-        when 1
-           
-            #if we can eat the attack_piece
-            attack_piece = attack_pieces[0]
-            defense_pieces = defense.pieces.select {|piece| piece.name != 'K'}
-            return false if is_eaten_by(defense_pieces, attack_piece.position).length > 0
-            #if we can shield the king by another piece
-            unless attack_piece.name == 'N' || attack_piece.name == 'p'
-                coor_between = attack_piece.coor_between(defense_king.position)
-                defense_pieces = defense.pieces.select {|piece| piece.name != 'K'}
-                coor_between.each do |destination|
-                    defense_pieces.each do |piece|
-                        if piece.name == 'p' 
-                            return false if pawn_valid_move(piece, piece.position, destination, attack) != false
-                            
-                        else   
-                            return false if piece.path_valid?(board, destination) 
-                        end
-                    end
-                end
-            end
-        end
-        #if the king can run on its own
-        defense_king.generate_possible_coors.each do |destination|
-            next if board.get_status_color(destination) == defense.color
-            return false if is_eaten_by(attack.pieces, destination).length == 0
-        end
-        attack.color
-    end
-    
-    def pawn_valid_move(piece, position, destination, opponent)
-        direction = piece.get_direction(destination)
-        return false unless piece.move_pattern?(direction)
-        if [[0,1], [0,-1]].any?(direction) 
-            board.get_status(destination).nil?
-        elsif [[0,2], [0,-2]].any?(direction)
-            return false unless board.get_status(destination).nil?
-            return false unless piece.initial_position?
-            if piece.color == 'w' 
-                obstacle_coordinator = [position[0], position[1]+1]
-            else 
-                obstacle_coordinator = [position[0], position[1]-1]
-            end
-
-            return false unless board.get_status(obstacle_coordinator).nil? 
-            #send signal to turn on in-passing
-            piece
-        else 
-            if board.get_status(destination).nil?
-                return false if @in_passing.nil?
-                opponent_pawn = opponent.get_piece('p', [position[0] + direction[0], position[1]])
-                #send signal to eat the "in-passing" piece 
-                @in_passing == opponent_pawn ? opponent_pawn : false
-            else true end
-        end 
-    end
-    def castle_succeed?(player, piece, destination, opponent)
-        return false if is_eaten_by(opponent, piece.position)
-        if player.color == 'w' 
-            case destination
-            when [7,1]
-                middle_square_coordinator = [[6,1], [7,1]]
-                rook = player.get_piece('R', [8,1])
-            when [3,1]
-                rook = player.get_piece('R', [1,1])
-                middle_square_coordinator = [[2,1],[3,1],[4,1]]
-            else  
-                return false
-            end
-        else 
-            case destination
-            when [7,8]
-                rook = player.get_piece('R', [8,8])
-                middle_square_coordinator = [[6,8], [7,8]]
-            when [3,8]
-                rook = player.get_piece('R', [1,8])
-                middle_square_coordinator = [[2,8],[3,8],[4,8]]
-            else  
-                return false
-            end
-        end
-        if middle_square_coordinator.map {|coor| board.get_status(coor) }.all?(nil)
-            castling(piece, rook, destination)
-            piece.castle = false
-            true
-        else 
-            false 
-        end
-    end
-    def castling(king, rook, destination) 
-        #change previous square status
-        board.change_status(king.position, nil)
-        board.change_status(rook.position, nil)
-        #change rook and king position
-        direction = destination[0] - king.position[0]
-        if king.color == 'w' 
-            direction > 0 ? rook.position = [6,1] : rook.position = [4,1]
-        else 
-            direction > 0 ? rook.position = [6,8] : rook.position = [4,8]
-        end
-        king.position = destination
-        #change current square status
-        board.change_status(king.position, king)
-        board.change_status(rook.position, rook)
-    end
-    
-    def change(piece, position, destination, opponent, pawn_move=nil)
-        if pawn_move.instance_of? Pawn
-            case pawn_move.color
-            when piece.color
-                @in_passing = piece
-            else 
-                @removed_piece = opponent.pieces.delete(pawn_move)
-                board.change_status(pawn_move.position, nil)
-            end
-        end
-        
-        @removed_piece = opponent.pieces.delete(board.get_status(destination)) 
-        piece.position = destination
-        board.change_status(position, nil) 
-        board.change_status(destination, piece) 
-    end
-    def get_move(player)
-        move_raw = ask(player)
-        return unless move_raw.length == 5 || move_raw.length == 7
-        pieces_names = ['K','Q','R','B','N']
-        piece_name_arr = move_raw.intersection(pieces_names)
-        if piece_name_arr.length == 0 
-            piece_name = 'p'
-        elsif piece_name_arr.length == 1 
-            piece_name = piece_name_arr[0]
-        else 
-            return 
-        end
-        move_raw.delete(piece_name)
-        return unless move_raw.length == 5
-        position = move_raw[0..1]
-        destination = move_raw[-2..-1]
-        if position[0].between?('a','h') && destination[0].between?('a','h') &&
-            position[1].between?('1','8') && destination[1].between?('1','8')
-            position = transform_coordinator(position)
-            destination = transform_coordinator(destination)
-        else 
-            return 
-        end
-        piece = player.get_piece(piece_name, position)
-        return if piece.nil?
-        return [piece, position, destination] if pass_basic_condition(player, destination)
-
-    end
-    def pass_basic_condition(player, destination)
-        board.get_status(destination).nil? || board.get_status_color(destination) != player.color  
-    end
-    def transform_coordinator(raw_coordinator)
-        x = raw_coordinator[0].ord - 96
-        [x, raw_coordinator[1].to_i]
-    end
-
-    def ask(player)
-        puts "player #{player.color} please make a valid move"
-        gets.chomp.strip.split('')
-    end
-    def introduce
-        puts 'Welcome to the game!'
-        unless File.zero?('./lib/saved_game.yml')
             loop do 
-                puts "Press 'n' if you want to play new game and 'c' if you want to continue previous game"
-                answer = gets.chomp.strip
-                return answer if answer == 'n' || answer == 'c'
-                puts "Please enter a valid answer!"
+                raw_move = get_move(player)
+                next if raw_move.nil? 
+                move = transform(raw_move)
+                piece = @board.get_piece(move[:piece], move[:current], player)
+                if piece
+                    move = {current: @board.square(move[:current]), destination: @board.square(move[:destination]) }
+                else 
+                    next 
+                end
+                next if !move[:destination].status.nil? && move[:destination].status.color == player
+                path = get_path(player, opponent, piece, move)
+                next if path.nil?
+                save_state
+                moving(path, piece, move)
+                
+                player_king = @board.get_king(player)
+                opponent_pieces = @board.pieces(opponent).map {|square| square.status.name }
+                king_checked = @board.pieces(opponent).any? do |square| 
+                    can_eat?(square, player_king)
+                end
+                if king_checked
+                    undo 
+                    next
+                else 
+                    @count +=1
+                    break
+                end
             end
         end
     end
 end
-new_game = Game.new
-test = new_game.play
- 
 
+new_game = Game.new 
+new_game.play
